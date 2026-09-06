@@ -1,12 +1,11 @@
 """SOLIDWORKS MCP 工具 — 统一注册表 (MCP 1.x API)
 
-18 个基础建模工具:
+精简版 — 10 个基础建模工具（连接 + 草绘 + 拉伸 + 切除，足以构建大多数棱柱类零件）:
     连接: connect_solidworks
-    文档: get_active_document / new_part / save_document
+    文档: new_part
     草图: create_sketch_on_plane / sketch_rectangle / sketch_circle /
-          sketch_line / sketch_polygon / sketch_slot / sketch_centerline
-    特征: extrude / cut_extrude / revolve / fillet / chamfer / circular_pattern
-    外观: set_color
+          sketch_line / sketch_polygon / sketch_slot
+    特征: extrude / cut_extrude
 """
 
 from .connection import CONNECTION_TOOLS
@@ -17,19 +16,13 @@ from .sketch_tools import (
     _sketch_rectangle,
     _sketch_circle,
     _sketch_line,
-    _sketch_centerline,
     _sketch_polygon,
     _sketch_slot,
 )
 from .feature_tools import (
     _extrude,
     _cut_extrude,
-    _revolve,
-    _circular_pattern,
-    _fillet,
-    _chamfer,
 )
-from .appearance_tools import _set_color
 
 
 # ==================== 工具注册 ====================
@@ -126,21 +119,6 @@ FEATURE_TOOLS = [
         "handler": _sketch_slot,
     },
     {
-        "name": "sketch_centerline",
-        "description": "在当前草图中绘制中心线（构造线），用作旋转特征(revolve)的旋转轴。调用后 revolve 自动识别此线为旋转轴",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "x1": {"type": "number", "description": "起点 X (mm)"},
-                "y1": {"type": "number", "description": "起点 Y (mm)"},
-                "x2": {"type": "number", "description": "终点 X (mm)"},
-                "y2": {"type": "number", "description": "终点 Y (mm)"},
-            },
-            "required": ["x1", "y1", "x2", "y2"],
-        },
-        "handler": _sketch_centerline,
-    },
-    {
         "name": "extrude",
         "description": "对当前草图执行拉伸凸台，单位: 毫米。支持等距起始(start_offset>0)",
         "inputSchema": {
@@ -183,129 +161,6 @@ FEATURE_TOOLS = [
             },
         },
         "handler": _cut_extrude,
-    },
-    {
-        "name": "revolve",
-        "description": "旋转凸台/切除。需先创建草图→绘制轮廓→sketch_centerline画中心线，再调用此工具。逆时针为正角度",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "angle": {"type": "number", "description": "旋转角度(度), 默认 360", "default": 360.0},
-                "is_cut": {"type": "boolean", "description": "True=旋转切除, False=旋转凸台", "default": False},
-                "reverse_dir": {"type": "boolean", "description": "反向旋转", "default": False},
-                "both_dirs": {"type": "boolean", "description": "双向旋转", "default": False},
-                "dir2_angle": {"type": "number", "description": "方向2角度(度)，仅 both_dirs=True 时生效", "default": 0.0},
-                "mid_plane": {"type": "boolean", "description": "中间平面对称旋转", "default": False},
-                "merge_result": {"type": "boolean", "description": "合并到现有实体", "default": True},
-            },
-        },
-        "handler": _revolve,
-    },
-    {
-        "name": "fillet",
-        "description": "对选中的边倒圆角，单位: 毫米",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "radius": {"type": "number", "description": "圆角半径 (mm)"},
-            },
-            "required": ["radius"],
-        },
-        "handler": _fillet,
-    },
-    {
-        "name": "chamfer",
-        "description": "对选中的边倒角。需先选中边。支持: angle_distance(距离+角度)/equal_distance(等距45°)/distance_distance(两边不等距)/vertex(顶点倒角)",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "distance": {"type": "number", "description": "倒角距离/宽度 (mm)", "default": 1.0},
-                "angle": {"type": "number", "description": "倒角角度(度), angle_distance模式默认45; vertex模式下用作第三边距离(mm)", "default": 45.0},
-                "distance2": {"type": "number", "description": "第二边距离(mm), 仅 distance_distance/vertex 模式使用", "default": 0.0},
-                "chamfer_type": {
-                    "type": "string",
-                    "enum": ["angle_distance", "equal_distance", "distance_distance", "vertex"],
-                    "description": "倒角类型: angle_distance=距离角度, equal_distance=等距45°, distance_distance=两边不等距, vertex=顶点倒角",
-                    "default": "angle_distance",
-                },
-                "flip": {"type": "boolean", "description": "翻转倒角方向", "default": False},
-            },
-        },
-        "handler": _chamfer,
-    },
-    {
-        "name": "circular_pattern",
-        "description": "圆周阵列。需先选好种子特征和旋转轴（参考轴）。对应 SOLIDWORKS: 插入→阵列/镜像→圆周阵列",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "num_instances": {
-                    "type": "integer",
-                    "description": "实例数（含原始），默认 3",
-                    "default": 3,
-                },
-                "spacing_deg": {
-                    "type": "number",
-                    "description": "间距角度(度)。equal_spacing=True 时为总角度，默认 360°",
-                    "default": 360.0,
-                },
-                "equal_spacing": {
-                    "type": "boolean",
-                    "description": "等间距分布，默认 true",
-                    "default": True,
-                },
-                "flip_direction": {
-                    "type": "boolean",
-                    "description": "翻转阵列方向，默认 false",
-                    "default": False,
-                },
-                "geometry_pattern": {
-                    "type": "boolean",
-                    "description": "仅几何阵列（不重新求解），默认 false",
-                    "default": False,
-                },
-                "seed_feature": {
-                    "type": "string",
-                    "description": "种子特征名称（如 '切除-拉伸2'）。为空时自动选中最后一个特征",
-                    "default": "",
-                },
-                "axis_type": {
-                    "type": "string",
-                    "description": "旋转轴类型: axis(参考轴,默认) / edge(边) / cylindrical_face(圆柱面)",
-                    "default": "axis",
-                },
-                "axis_name": {
-                    "type": "string",
-                    "description": "参考轴名称（如 'Axis1'），axis_type='axis' 时使用",
-                    "default": "",
-                },
-            },
-        },
-        "handler": _circular_pattern,
-    },
-    {
-        "name": "set_color",
-        "description": "设置面/特征/零件的颜色。R/G/B 范围 0-255。不选特征时设置整个零件颜色。",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "r": {"type": "integer", "description": "红色 (0-255)"},
-                "g": {"type": "integer", "description": "绿色 (0-255)"},
-                "b": {"type": "integer", "description": "蓝色 (0-255)"},
-                "feature_name": {
-                    "type": "string",
-                    "description": "特征名称（可选）。为空时设置整个零件颜色",
-                    "default": "",
-                },
-                "transparency": {
-                    "type": "number",
-                    "description": "透明度 (0.0=不透明, 1.0=全透明)，默认 0",
-                    "default": 0.0,
-                },
-            },
-            "required": ["r", "g", "b"],
-        },
-        "handler": _set_color,
     },
 ]
 

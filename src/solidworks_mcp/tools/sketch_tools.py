@@ -2,7 +2,6 @@
 
 import math
 from ..sw_connection import connection
-from ..utils import ensure_callable
 
 # 导入公共模块
 from common.com_utils import safe_variant_call as _safe_variant_call
@@ -41,6 +40,16 @@ def _create_sketch_on_plane(plane: str = "front") -> str:
         if not ok:
             return f"❌ 无法选择基准面: {plane_name}"
 
+    # 关闭可能存在的旧草图（InsertSketch2 是 toggle，不是「关闭」：
+    # 草图开着时调用会关闭、关着时调用会打开。若上个草图还开着，直接调用
+    # 会把它关掉而不是打开新草图 → 下一段实体画进上一个草图）
+    try:
+        if model.GetActiveSketch2() is not None:
+            model.InsertSketch2(True)
+    except Exception:
+        pass
+
+    # 打开新草图
     model.InsertSketch2(True)
     label = plane if plane else "当前选定面"
     return f"✅ 已在 {label} 上创建草图"
@@ -88,201 +97,6 @@ def _sketch_line(x1: float, y1: float, x2: float, y2: float) -> str:
     sm.DisplayWhenAdded = True
     model.ClearSelection2(True)
     return f"✅ 已绘制直线: ({x1},{y1}) → ({x2},{y2}) mm"
-
-
-def _sketch_spline(points: list) -> str:
-    """绘制样条曲线。
-
-    Args:
-        points: 控制点列表 [(x1,y1), (x2,y2), ...] 或 [x1,y1,z1, x2,y2,z2, ...] (mm)
-                支持 2D 点 list 或扁平化坐标 list
-    """
-    model = _get_model()
-    sm = model.SketchManager
-    ensure_callable(sm, 'CreateSpline')
-
-    # Flatten points to [x0,y0,z0, x1,y1,z1, ...] in meters
-    import array
-    flat = array.array('d')
-    for p in points:
-        if isinstance(p, (list, tuple)):
-            if len(p) >= 3:
-                flat.append(mm_to_m(p[0]))
-                flat.append(mm_to_m(p[1]))
-                flat.append(mm_to_m(p[2]))
-            else:
-                flat.append(mm_to_m(p[0]))
-                flat.append(mm_to_m(p[1]))
-                flat.append(0.0)
-        else:
-            # Bare float — assume already flattened
-            flat.append(mm_to_m(p))
-
-    sm.AddToDB = True
-    sm.DisplayWhenAdded = False
-    _safe_variant_call(sm.CreateSpline, flat)
-    sm.AddToDB = False
-    sm.DisplayWhenAdded = True
-    model.ClearSelection2(True)
-
-    n = len(points)
-    return f"✅ 已绘制样条曲线: {n} 个控制点"
-
-
-def _sketch_centerline(x1: float, y1: float, x2: float, y2: float) -> str:
-    """绘制中心线（构造线），用作旋转特征的旋转轴。
-
-    内部通过 ISketchManager::CreateCenterLine 创建，
-    区别于普通 sketch_line：CreateCenterLine 返回的段自动标记为构造几何。
-
-    中点坐标存储为函数属性 _sketch_centerline._last_centerline_mid_mm，
-    供 feature_tools._revolve 选轴用。
-    """
-    model = _get_model()
-    mx1, my1 = mm_to_m(x1), mm_to_m(y1)
-    mx2, my2 = mm_to_m(x2), mm_to_m(y2)
-    sm = model.SketchManager
-    sm.AddToDB = True
-    sm.DisplayWhenAdded = False
-    _safe_variant_call(sm.CreateCenterLine, mx1, my1, 0, mx2, my2, 0)
-    sm.AddToDB = False
-    sm.DisplayWhenAdded = True
-    # 存储中点坐标供 _revolve 选中旋转轴 (Mark=4)
-    _sketch_centerline._last_centerline_mid_mm = ((x1 + x2) / 2.0, (y1 + y2) / 2.0, 0.0)
-    model.ClearSelection2(True)
-    return f"✅ 已绘制中心线: ({x1},{y1}) → ({x2},{y2}) mm"
-
-
-def _sketch_fillet(x1: float, y1: float, x2: float, y2: float,
-                   radius: float) -> str:
-    """在两个草图段交点处创建圆角。
-
-    选择靠近 (x1,y1) 和 (x2,y2) 的两个草图段，
-    调用 ISketchManager::CreateFillet 生成切线弧并自动剪裁。
-    (x1,y1) 和 (x2,y2) 应分别在形成交角的两条边上、靠近交点。
-
-    对应 SOLIDWORKS: 草图 → 绘制圆角 (Sketch Fillet)
-    """
-    model = _get_model()
-    mx1, my1 = mm_to_m(x1), mm_to_m(y1)
-    mx2, my2 = mm_to_m(x2), mm_to_m(y2)
-    m_radius = mm_to_m(radius)
-
-    # 选中第一条段（不 append）
-    model.ClearSelection2(True)
-    if not model.Extension.SelectByID2("", "SKETCHSEGMENT", mx1, my1, 0, False, 0, None, 0):
-        return f"❌ 未找到坐标 ({x1:.1f}, {y1:.1f}) 处的草图段"
-
-    # 选中第二条段（append）
-    if not model.Extension.SelectByID2("", "SKETCHSEGMENT", mx2, my2, 0, True, 0, None, 0):
-        return f"❌ 未找到坐标 ({x2:.1f}, {y2:.1f}) 处的草图段"
-
-    # swConstrainedCornerDeleteGeometry=0: 删除几何约束（最常用）
-    _safe_variant_call(model.SketchManager.CreateFillet, m_radius, 0)
-    model.ClearSelection2(True)
-    return f"✅ 已创建草图圆角: 半径 {radius}mm"
-
-
-def _sketch_trim(option: str = "closest", x: float = 0.0, y: float = 0.0) -> str:
-    """剪裁/延伸草图段。
-
-    option 对应 SW Trim PropertyManager:
-      - closest    — 剪裁到最近交点（需先选 1 条段）
-      - corner     — 延伸/剪裁两段形成角（需先选 2 条段）
-      - inside     — 剪裁内部（需选边界2段+被剪段≥1）
-      - outside    — 剪裁外部
-      - point      — 在指定点处剪裁 (需传 x,y)
-      - two_entities — 第一段剪到第二段(选中顺序决定)
-
-    调用方式：先用 SelectByID2 选中要剪裁的段，再调此函数。
-    或者传 x,y 坐标 + option=point 精确裁剪。
-
-    对应 SOLIDWORKS: 草图 → 剪裁实体 (Trim Entities)
-    """
-    model = _get_model()
-
-    option_map = {
-        "closest": 0,     # swSketchTrimClosest
-        "corner": 1,      # swSketchTrimCorner
-        "entities": 2,    # swSketchTrimEntities (power trim)
-        "point": 3,       # swSketchTrimEntityPoint
-        "inside": 4,      # swSketchTrimInside
-        "outside": 5,     # swSketchTrimOutside
-        "two_entities": 6,  # swSketchTrimTwoEntities
-    }
-    opt_val = option_map.get(option.lower(), 0)
-
-    if option.lower() == "point":
-        mx, my = mm_to_m(x), mm_to_m(y)
-    else:
-        mx, my = 0.0, 0.0
-
-    # ISketchManager::SketchTrim 返回 bool (True=成功)
-    # 不用 _safe_variant_call 包装（它会干扰 COM 返回值的解析）
-    try:
-        ok = model.SketchManager.SketchTrim(opt_val, mx, my, 0.0)
-    except Exception:
-        ok = False
-
-    if not ok:
-        return f"❌ 草图剪裁失败: {option}（请确认已选中正确的草图段）"
-    return f"✅ 草图剪裁完成: {option}"
-
-
-def _sketch_arc(center_x: float, center_y: float,
-               start_x: float, start_y: float,
-               end_x: float, end_y: float,
-               direction: int = 1) -> str:
-    """画圆弧。direction: 1=逆时针(CCW), -1=顺时针(CW)"""
-    model = _get_model()
-    sm = model.SketchManager
-    sm.AddToDB = True
-    sm.DisplayWhenAdded = False
-    _safe_variant_call(
-        sm.CreateArc,
-        mm_to_m(center_x), mm_to_m(center_y), 0,
-        mm_to_m(start_x), mm_to_m(start_y), 0,
-        mm_to_m(end_x), mm_to_m(end_y), 0,
-        direction,
-    )
-    sm.AddToDB = False
-    sm.DisplayWhenAdded = True
-    model.ClearSelection2(True)
-    dir_str = "逆时针" if direction >= 0 else "顺时针"
-    return f"✅ 已绘制圆弧: 圆心({center_x},{center_y}) {start_x},{start_y}→{end_x},{end_y} ({dir_str})"
-
-
-def _sketch_offset(distance: float, both_directions: bool = False,
-                   chain: bool = True, cap_ends: int = 2) -> str:
-    """等距实体 — 将已选中的草图实体偏移指定距离。
-
-    对应 SOLIDWORKS: 工具 → 草图工具 → 等距实体
-    使用 ISketchManager::SketchOffset2 (SW 2016+)
-
-    调用流程:
-      1. 先用 SelectByID2 选中要偏移的草图实体（如圆、线段）
-      2. 调用 _sketch_offset(distance)
-
-    Args:
-        distance: 偏移距离 mm，负值向内/反向偏移
-        both_directions: 是否双向偏移
-        chain: 是否偏移整个链（相连实体一起偏移）
-        cap_ends: 端盖类型 0=无, 1=圆弧端盖, 2=直线端盖(默认，自动封闭)
-    """
-    model = _get_model()
-    sm = model.SketchManager
-    ensure_callable(sm, 'SketchOffset2')
-
-    m_dist = mm_to_m(abs(distance))
-    # 负距离 = 反向偏移
-    offset_val = -m_dist if distance < 0 else m_dist
-
-    # ISketchManager::SketchOffset2(Offset, BothDirections, Chain, CapEnds, MakeConstruction, AddDimensions)
-    ok = sm.SketchOffset2(offset_val, both_directions, chain, cap_ends, 0, False)
-
-    if not ok:
-        return f"❌ 等距实体失败: distance={distance}mm（请确认已选中草图实体）"
-    return f"✅ 等距实体完成: 偏移 {distance}mm"
 
 
 def _sketch_polygon(center_x: float, center_y: float, radius: float, sides: int = 6) -> str:

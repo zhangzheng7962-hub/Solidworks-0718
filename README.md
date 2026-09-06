@@ -8,9 +8,11 @@ AI ──MCP协议──► Python MCP 服务 ──COM接口──► SOLIDWORK
 
 你对 AI 说"画一个 100×100×30 的方块",AI 调用本服务的工具,SOLIDWORKS 里就会出现这个零件。
 
-包含 **18 个基础建模工具**:连接、文档、草图（矩形/圆/直线/多边形/腰形孔/中心线）、特征（拉伸/切除/旋转/圆角/倒角/圆周阵列）、上色。
+包含 **10 个基础建模工具**:连接、新建零件、草图（矩形/圆/直线/多边形/腰形孔）、特征（拉伸凸台/拉伸切除）。用它们就能搭出绝大多数棱柱类零件。
 
 > 配套图文教程（原理答疑 + API 手册 + 实操项目）见飞书文档《AI 连 SOLIDWORKS 完整指南》。
+
+> ⚠️ **适用版本**：本项目基于 **SOLIDWORKS 2020（中文版）** 开发与实测，兼容 SW 2020 及以上版本（更低版本未验证，部分 API 可能缺失）。
 
 ## 环境要求
 
@@ -63,27 +65,26 @@ uv sync
 ## 使用
 
 1. **先打开 SOLIDWORKS**（服务是附着到正在运行的 SW 上的）
-2. 对 AI 说建模需求,例如:
+2. 在对话框里直接说人话,例如:
 
-```
-新建零件,在前视基准面画一个中心在原点、半径 25 的圆,拉伸 20mm,涂成金黄色
-```
+> 画一个 100×100×30 的方块
+
+AI 会自动拆成工具调用:`new_part` → `create_sketch_on_plane(front)` → `sketch_rectangle(-50,-50,50,50)` → `extrude(30)`,SOLIDWORKS 里就出现这个方块。
 
 ### 试试这 3 个入门项目
 
 **方块**:`新建零件 → 前视基准面画 100×100 矩形 → 拉伸 30`
 **六角螺母毛坯**:`正六边形(外接圆半径20) → 拉伸10 → 同面画圆(半径10) → 贯穿切除`
-**旋转花瓶**:`中心线(0,0)-(0,80) → 直线勾勒轮廓 → 旋转360° → 淡蓝色半透明`
+**带腰形孔的板**:`矩形 100×60 → 拉伸 10 → 上表面画腰形孔(长30宽10) → 贯穿切除`
 
-## 工具清单（18 个）
+## 工具清单（10 个）
 
 | 分类 | 工具 |
 |------|------|
 | 连接 | `connect_solidworks` |
-| 文档 | `get_active_document` `new_part` `save_document` |
-| 草图 | `create_sketch_on_plane` `sketch_rectangle` `sketch_circle` `sketch_line` `sketch_polygon` `sketch_slot` `sketch_centerline` |
-| 特征 | `extrude` `cut_extrude` `revolve` `fillet` `chamfer` `circular_pattern` |
-| 外观 | `set_color` |
+| 文档 | `new_part` |
+| 草图 | `create_sketch_on_plane` `sketch_rectangle` `sketch_circle` `sketch_line` `sketch_polygon` `sketch_slot` |
+| 特征 | `extrude` `cut_extrude` |
 
 所有坐标/尺寸单位均为**毫米**,内部自动转换为 SOLIDWORKS API 的米。
 
@@ -94,8 +95,7 @@ uv sync
 | 连接失败 | SW 未启动 | 先打开 SOLIDWORKS |
 | 无法选择基准面 | 基准面名传错 | 用 `front` / `top` / `right` |
 | 没有打开的文档 | 忘了建零件 | 先调 `new_part` |
-| 画了草图看不到实体 | 草图只是轮廓 | 草图后必须跟 `extrude`/`cut_extrude`/`revolve` |
-| 旋转失败 | 没画中心线 | `revolve` 前先调 `sketch_centerline` |
+| 画了草图看不到实体 | 草图只是轮廓 | 草图后必须跟 `extrude`/`cut_extrude` |
 | 首次连接较慢 | comtypes 在生成 SW 类型库缓存 | 正常现象,只有第一次慢 |
 
 ## 想自己扩展工具?
