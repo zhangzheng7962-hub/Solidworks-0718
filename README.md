@@ -96,7 +96,7 @@ AI 会自动拆成工具调用:`new_part` → `create_sketch_on_plane(front)` �
 | 无法选择基准面 | 基准面名传错 | 用 `front` / `top` / `right` |
 | 没有打开的文档 | 忘了建零件 | 先调 `new_part` |
 | 画了草图看不到实体 | 草图只是轮廓 | 草图后必须跟 `extrude`/`cut_extrude` |
-| 首次连接较慢 | comtypes 在生成 SW 类型库缓存 | 正常现象,只有第一次慢 |
+| 首次连接像卡住 | comtypes 正在读取 SW 类型库、生成绑定缓存（`comtypes/gen/SldWorks.py`） | **正常现象**，首次约 1–3 分钟，期间不要中断；生成完自动继续，之后秒连 |
 
 ## 想自己扩展工具?
 
