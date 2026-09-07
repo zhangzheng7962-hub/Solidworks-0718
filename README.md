@@ -106,8 +106,6 @@ AI 会自动拆成工具调用:`new_part` → `create_sketch_on_plane(front)` �
 - 查手册:`<SW安装目录>\SOLIDWORKS\api\sldworksapi.chm`(函数详解)+ `swconst.chm`(常量表),或在线版 [help.solidworks.com](https://help.solidworks.com)
 - 实现:参考 `src/solidworks_mcp/tools/` 里现有工具的写法,在注册表中加一项即可
 
-## License & 致谢
-
-MIT License。
+## 致谢
 
 项目起步阶段参考了社区开源项目 [alisamsam/solidworks-mcp](https://github.com/alisamsam/solidworks-mcp) 等 SOLIDWORKS MCP 实现,在此致谢。当前代码为独立重写版本:comtypes 强类型绑定、COM STA 单线程串行化、中文版 SW 适配、推理吸附关闭等。
